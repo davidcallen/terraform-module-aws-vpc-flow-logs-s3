@@ -3,18 +3,32 @@
 # ---------------------------------------------------------------------------------------------------------------------
 resource "aws_s3_bucket" "vpc-flow-logs" {
   bucket        = var.s3_bucket_name
-  acl           = "private"
   force_destroy = true
-  versioning {
-    enabled = false
+  lifecycle {
+    prevent_destroy = true # cant use variable here for resource_deletion_protection :(
   }
-  server_side_encryption_configuration {
-    rule {
-      apply_server_side_encryption_by_default {
-        sse_algorithm = "AES256"
-      }
+  tags = merge(var.tags, {
+    Name        = var.s3_bucket_name
+    Description = "Contains VPC Flow Logs. These Logs also in Cloudwatch but in S3 held for longer rentention period for cost saving."
+  })
+}
+resource "aws_s3_bucket_versioning" "vpc-flow-logs" {
+  bucket = aws_s3_bucket.vpc-flow-logs.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+resource "aws_s3_bucket_server_side_encryption_configuration" "vpc-flow-logs" {
+  bucket = aws_s3_bucket.vpc-flow-logs.bucket
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
     }
   }
+}
+
+resource "aws_s3_bucket_policy" "vpc-flow-logs" {
+  bucket = aws_s3_bucket.vpc-flow-logs.bucket
   policy = <<EOF
 {
     "Version": "2012-10-17",
@@ -66,13 +80,14 @@ resource "aws_s3_bucket" "vpc-flow-logs" {
     ]
 }
 EOF
-  lifecycle_rule {
-    id      = "Ageing"
-    enabled = true
-    prefix  = "*"
-    tags = {
-      rule      = "Ageing"
-      autoclean = "true"
+}
+resource "aws_s3_bucket_lifecycle_configuration" "vpc-flow-logs" {
+  bucket = aws_s3_bucket.vpc-flow-logs.bucket
+  rule {
+    id     = "Ageing"
+    status = "Enabled"
+    filter {
+      prefix = "*"
     }
     transition {
       days          = 60
@@ -86,12 +101,5 @@ EOF
       days = 360
     }
   }
-  lifecycle {
-    prevent_destroy = true # cant use variable here for resource_deletion_protection :(
-  }
-  tags = merge(var.tags, {
-    Name        = var.s3_bucket_name
-    Description = "Contains VPC Flow Logs. These Logs also in Cloudwatch but in S3 held for longer rentention period for cost saving."
-  })
 }
-
+data "aws_canonical_user_id" "current_user" {}
